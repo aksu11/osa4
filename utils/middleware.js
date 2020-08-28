@@ -26,8 +26,8 @@ const unknownEndpoint = (request, response) => {
 }
 
 module.exports = {
-    logger,
-    errorHandler,
-    tokenExtractor,
-    unknownEndpoint
+  logger,
+  errorHandler,
+  tokenExtractor,
+  unknownEndpoint
 }
