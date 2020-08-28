@@ -3,6 +3,7 @@ const supertest = require('supertest')
 const app = require('../app')
 const api = supertest(app)
 const Blog = require('../models/blog')
+const User = require('../models/user')
 
 const initialBlogs = [
   {
@@ -25,12 +26,27 @@ const initialBlogs = [
   }
 ] 
 
-describe('API-tests', () => {
+const initialUser = {
+  name: "Testaaja",
+  username: "Testaaja",
+  password: "salainen"
+}
+
+let token
+let loggedUser
+
+describe('blogs API-tests', () => {
 
   beforeAll( async () => {
     await Blog.deleteMany({})
-    const blogObjects = initialBlogs
-      .map(blog => new Blog(blog))
+    await User.deleteOne({name: 'Testaaja'})
+    await api.post('/api/users').send(initialUser)
+    loggedUser = await api.post('/api/login').send({username: 'Testaaja', password: 'salainen'})
+    token = `bearer ${loggedUser.body.token}`
+    initialBlogs.forEach(blog => {
+      blog.user = loggedUser.body.id
+    })
+    const blogObjects = initialBlogs.map(blog => new Blog(blog))
     const promiseArray = blogObjects.map(blog => blog.save())
     await Promise.all(promiseArray)
   })
@@ -43,7 +59,7 @@ describe('API-tests', () => {
     expect(blogs.body.length).toBe(3)
   })
 
-  test('blogs have key "id"', async () => {
+  test('blogs have field "id"', async () => {
     const blogs = await api.get('/api/blogs')
     blogs.body.map(blog => {
       expect(blog.id).toBeDefined()
@@ -53,12 +69,13 @@ describe('API-tests', () => {
   test('blogs are added to database', async () => {
     const newBlog = {
       title: "Testiblogi",
-      author: "Hessu Hopo",
+      author: "Bart Simpson",
       url: "http://google.fi",
-      likes: 4
+      likes: 8
     }
     const blogsBefore = await api.get('/api/blogs')
-    const addedBlog = await api.post('/api/blogs').send(newBlog)
+    const addedBlog = await api.post('/api/blogs').send(newBlog).set({Accept: 'application/json'}).set({'authorization': token})
+    addedBlog.body.user = {username: loggedUser.body.username, id: addedBlog.body.user}
     const blogsAfter = await api.get('/api/blogs')
     expect(blogsAfter.body.length).toBe(blogsBefore.body.length+1)
     expect(blogsAfter.body).toContainEqual(addedBlog.body)
@@ -70,33 +87,34 @@ describe('API-tests', () => {
       author: "Hessu Hopo",
       url: "http://google.fi"
     }
-    const addedBlog = await api.post('/api/blogs').send(newBlog)
+    const addedBlog = await api.post('/api/blogs').send(newBlog).set({Accept: 'application/json'}).set({'authorization': token})
     expect(addedBlog.body.likes).toBe(0)
   })
 
   test('fields "title" and "url" have values', async () => {
     const noUrl = {
-      title: "Testiblogi3",
-      author: "Hessu Hopo",
+      title: "No Url",
+      author: "Bart Simpson",
       likes: 3
     }
     const noTitle = {
-      author: "Hessu Hopo",
+      author: "No title",
       url: "http://google.fi",
       likes: 4
     }
-    await api.post('/api/blogs').send(noUrl)
+    await api.post('/api/blogs').send(noUrl).set({Accept: 'application/json'}).set({'authorization': token})
       .expect(400)
-    await api.post('/api/blogs').send(noTitle)
+    await api.post('/api/blogs').send(noTitle).set({Accept: 'application/json'}).set({'authorization': token})
       .expect(400)
   })
 
-  test('blog are deleted from database', async () => {
-    const blogsBefore = await api.get('/api/blogs').expect(200)
+  test('blogs are deleted from database', async () => {
+    const blogsBefore = await api.get('/api/blogs')
     const blogToDelete = blogsBefore.body[0]
-
     await api
       .delete(`/api/blogs/${blogToDelete.id}`)
+      .set({Accept: 'application/json'})
+      .set({'authorization': token})
       .expect(204)
 
     const blogsAfter = await api.get('/api/blogs')
@@ -114,8 +132,8 @@ describe('API-tests', () => {
     expect(blogToLike.likes).toBe(likedBlog.body.likes - 1)
   })
 
-  afterAll( () => {
-    mongoose.connection.close()
-  })
+})
 
+afterAll( () => {
+  mongoose.connection.close()
 })
